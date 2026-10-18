@@ -9,11 +9,13 @@ CREATE TABLE IF NOT EXISTS chats (
 CREATE TABLE IF NOT EXISTS memories (
   id BIGSERIAL PRIMARY KEY,
   chat_id TEXT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-  kind TEXT NOT NULL CHECK (kind IN ('word', 'sentence')),
+  kind TEXT NOT NULL CHECK (kind IN ('word', 'sentence', 'image')),
   content TEXT NOT NULL,
+  file_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(chat_id, kind, content)
 );
 
 CREATE INDEX IF NOT EXISTS idx_memories_chat_kind ON memories(chat_id, kind);
 CREATE INDEX IF NOT EXISTS idx_chats_enabled ON chats(enabled);
+CREATE INDEX IF NOT EXISTS idx_memories_file_id ON memories(chat_id, file_id) WHERE file_id IS NOT NULL;

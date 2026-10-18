@@ -14,9 +14,12 @@ This version is built for **Render**:
 - `/help` — show help
 - `/addword ephemeral` — save a word
 - `/addsentence The early bird catches the worm.` — save a sentence
+- Send a photo with caption `/addimage [optional caption]` — save an image
+- Reply to a photo with `/addimage [optional caption]` — save an existing photo
 - `/list` — show saved items and IDs
 - `/removeword 3` — remove a word by ID
 - `/removesentence 7` — remove a sentence by ID
+- `/removeimage 9` — remove an image by ID
 - `/removeword exact text` — remove a word by exact text
 - `/removesentence exact text` — remove a sentence by exact text
 - `/stop` — pause reminders without deleting data
@@ -44,6 +47,8 @@ POST /telegram/<WEBHOOK_SECRET>
 ```
 
 The database schema is initialized automatically when the web service or cron job starts. The SQL reference is in `migrations/001_initial.sql`.
+
+Images are stored using Telegram's `file_id`, not as downloaded files. This keeps the database small and lets Telegram deliver the original saved image when a reminder is sent. The image caption is optional and is shown when the image is sent.
 
 ## Set the Telegram webhook
 
