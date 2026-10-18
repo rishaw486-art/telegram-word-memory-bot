@@ -68,6 +68,8 @@ The service sends Telegram a secret header token automatically. This avoids putt
 
 If you use a custom domain, set `WEBHOOK_BASE_URL` on the web service to that base URL and redeploy. Otherwise, Render's automatic URL is used.
 
+The web service also self-pings its `/health` endpoint every five minutes by default. It uses `SELF_PING_URL` when provided, otherwise it derives the URL from `WEBHOOK_BASE_URL` or Render's public URL. You can change the interval with `SELF_PING_INTERVAL_MS` (default: `300000`). This keeps the Node process active while it is running, but Render's Free plan may still suspend a service after inactivity; a paid always-on web plan is required for a guaranteed continuously running service.
+
 If you need to register it manually, use:
 
 ```bash

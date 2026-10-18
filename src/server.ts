@@ -9,6 +9,8 @@ const rawWebhookSecret = process.env.WEBHOOK_SECRET;
 // generateValue may produce base64 characters such as +, / and =.
 const webhookSecret = rawWebhookSecret?.replace(/[^A-Za-z0-9_-]/g, "");
 const webhookBaseUrl = process.env.WEBHOOK_BASE_URL ?? process.env.RENDER_EXTERNAL_URL;
+const selfPingUrl = process.env.SELF_PING_URL ?? (webhookBaseUrl ? `${webhookBaseUrl.replace(/\/$/, "")}/health` : undefined);
+const selfPingIntervalMs = Number(process.env.SELF_PING_INTERVAL_MS ?? 5 * 60 * 1000);
 
 if (!botToken) throw new Error("BOT_TOKEN is required");
 if (!webhookSecret || webhookSecret.length < 16) throw new Error("WEBHOOK_SECRET must contain at least 16 URL-safe characters");
@@ -55,6 +57,22 @@ if (webhookBaseUrl) {
   }
 } else {
   console.warn("RENDER_EXTERNAL_URL is unavailable; set WEBHOOK_BASE_URL and restart to register the Telegram webhook.");
+}
+
+if (selfPingUrl && Number.isFinite(selfPingIntervalMs) && selfPingIntervalMs > 0) {
+  const selfPing = async () => {
+    try {
+      const response = await fetch(selfPingUrl);
+      if (!response.ok) console.warn(`Self-ping returned HTTP ${response.status}`);
+      else console.log(`Self-ping successful: ${selfPingUrl}`);
+    } catch (error) {
+      console.error("Self-ping failed", error);
+    }
+  };
+  setInterval(() => void selfPing(), selfPingIntervalMs);
+  console.log(`Self-ping enabled every ${Math.round(selfPingIntervalMs / 1000)} seconds: ${selfPingUrl}`);
+} else {
+  console.warn("Self-ping disabled; set SELF_PING_URL or WEBHOOK_BASE_URL to enable it.");
 }
 
 process.on("SIGTERM", async () => {
