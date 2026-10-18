@@ -1,123 +1,124 @@
 # Telegram Word & Sentence Memory Bot
 
-A serverless Telegram bot built for **Cloudflare Workers + D1**. You can save words and sentences, remove them later, and receive one random saved word and one random saved sentence every five minutes.
+A Telegram bot that stores words and sentences, lets you remove them, and sends one random word plus one random sentence every five minutes.
 
-## Why this serverless design works
+This version is built for **Render**:
 
-Serverless functions should not keep a process or `setInterval` running. This project uses:
+- Render Web Service runs the Telegram webhook.
+- Render PostgreSQL stores memories permanently.
+- Render Cron Job runs `npm run cron` every five minutes.
 
-- **Cloudflare Worker** for the Telegram webhook.
-- **Cloudflare D1** for durable SQLite-compatible storage.
-- **Cloudflare Cron Trigger** (`*/5 * * * *`) for scheduled reminders.
+## Commands
 
-The cron trigger runs every five minutes and sends reminders to chats that have enabled them with `/start`.
+- `/start` — enable reminders and show help
+- `/help` — show help
+- `/addword ephemeral` — save a word
+- `/addsentence The early bird catches the worm.` — save a sentence
+- `/list` — show saved items and IDs
+- `/removeword 3` — remove a word by ID
+- `/removesentence 7` — remove a sentence by ID
+- `/removeword exact text` — remove a word by exact text
+- `/removesentence exact text` — remove a sentence by exact text
+- `/stop` — pause reminders without deleting data
+- `/remindme` — send a reminder immediately
 
-## Prerequisites
+## Deploy with Render Blueprint
 
-1. A Telegram bot token from [@BotFather](https://t.me/BotFather).
-2. A Cloudflare account with Workers and D1 enabled.
-3. Node.js 18+ and npm.
-4. Wrangler authenticated with `npx wrangler login`.
+1. Push this repository to GitHub.
+2. In Render, choose **New > Blueprint**.
+3. Select the `telegram-word-memory-bot` GitHub repository.
+4. Render reads `render.yaml` and creates:
+   - a web service named `telegram-word-memory-bot`;
+   - a PostgreSQL database named `telegram-memory-db`;
+   - a cron job named `telegram-word-memory-reminders`.
+5. When Render asks for `BOT_TOKEN`, enter the token from @BotFather.
+6. Deploy the Blueprint.
 
-## Deploy
+`WEBHOOK_SECRET` is generated automatically for the web service. `DATABASE_URL` is connected automatically to the Render PostgreSQL database.
 
-From this directory:
+The web service listens on Render's `PORT` environment variable. It exposes:
 
-```bash
-npm install
-npx wrangler login
-npx wrangler d1 create telegram-memory-db
+```text
+GET /health
+POST /telegram/<WEBHOOK_SECRET>
 ```
 
-Copy the `database_id` printed by Wrangler into `wrangler.toml`, replacing `REPLACE_WITH_D1_DATABASE_ID`.
+The database schema is initialized automatically when the web service or cron job starts. The SQL reference is in `migrations/001_initial.sql`.
 
-Create the database schema:
+## Set the Telegram webhook
 
-```bash
-npm run db:migrate:remote
+After the web service deploys, copy its public URL from Render. It normally looks like:
+
+```text
+https://telegram-word-memory-bot.onrender.com
 ```
 
-Set the Worker secrets. Use a long random webhook secret; it becomes part of the webhook URL:
+Get the generated `WEBHOOK_SECRET` from the web service's Render environment variables. Then register the complete webhook URL:
 
 ```bash
-npx wrangler secret put BOT_TOKEN
-npx wrangler secret put WEBHOOK_SECRET
+curl -sS -X POST \
+  "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
+  --data-urlencode \
+  "url=https://telegram-word-memory-bot.onrender.com/telegram/<WEBHOOK_SECRET>" \
+  -d 'allowed_updates=["message"]'
 ```
 
-Deploy:
+A successful result contains `"ok":true`.
 
-```bash
-npm run deploy
-```
-
-Wrangler prints a Worker URL such as `https://telegram-word-memory-bot.<your-subdomain>.workers.dev`.
-
-## Register the Telegram webhook
-
-Replace the placeholders and run:
-
-```bash
-curl -sS -X POST "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
-  --data-urlencode "url=https://<your-worker-domain>/telegram/<WEBHOOK_SECRET>" \
-  -d "allowed_updates=[\"message\"]"
-```
-
-A successful response contains `"ok":true`. For basic diagnostics:
+Check the webhook:
 
 ```bash
 curl "https://api.telegram.org/bot<BOT_TOKEN>/getWebhookInfo"
-curl "https://<your-worker-domain>/health"
 ```
 
-The bot token should not be committed to Git or put in frontend code. Store it only as a Wrangler secret.
+Test the Render service:
 
-## Bot commands
+```bash
+curl https://telegram-word-memory-bot.onrender.com/health
+```
 
-- `/start` enables five-minute reminders and shows help.
-- `/addword ephemeral` saves a word.
-- `/addsentence The early bird catches the worm.` saves a sentence.
-- `/list` shows saved words and sentences with IDs.
-- `/removeword 3` removes word ID 3.
-- `/removesentence 7` removes sentence ID 7.
-- `/removeword exact saved text` also removes by exact text.
-- `/stop` pauses reminders without deleting anything.
-- `/remindme` sends a reminder immediately.
-- `/help` shows the command list.
+Expected response:
 
-Duplicate items in the same chat are ignored. Data is isolated by Telegram chat ID, so users in different private chats do not see one another's memories. In a group, the memories belong to that group.
+```json
+{"ok":true,"service":"telegram-word-memory-bot"}
+```
 
-## Optional BotFather command menu
+## Deploy manually instead of using Blueprint
 
-In @BotFather, use `/setcommands` and paste:
+Create a Render **Web Service** connected to this repository:
+
+- **Runtime:** Node
+- **Build Command:** `npm ci && npm run build`
+- **Start Command:** `npm start`
+- **Health Check Path:** `/health`
+
+Add these environment variables:
 
 ```text
-start - Enable reminders and show help
-help - Show available commands
-addword - Save a word
-addsentence - Save a sentence
-list - List saved memories
-removeword - Remove a word by ID or exact text
-removesentence - Remove a sentence by ID or exact text
-stop - Pause five-minute reminders
-remindme - Send a reminder now
+BOT_TOKEN=<token from BotFather>
+WEBHOOK_SECRET=<long random URL-safe secret>
+DATABASE_URL=<Render PostgreSQL internal connection string>
 ```
+
+Then create a Render **Cron Job** from the same repository:
+
+- **Schedule:** `*/5 * * * *`
+- **Build Command:** `npm ci && npm run build`
+- **Start Command:** `npm run cron`
+- **Environment:** the same `BOT_TOKEN` and `DATABASE_URL`
+
+The cron job is what sends reminders every five minutes. Do not rely on `setInterval` in the web service because a Render service can restart or sleep.
 
 ## Local development
 
-Create a local secrets file:
-
 ```bash
-cp .dev.vars.example .dev.vars
-# edit .dev.vars with test values
-npm run db:migrate:local
+cp .env.example .env
+npm install
 npm run dev
 ```
 
-For local webhook testing, Telegram needs a public HTTPS URL. You can use a temporary tunnel such as Cloudflare Tunnel and register that URL as the webhook. Do not use local polling in this Worker design.
+Use a local PostgreSQL database and set `DATABASE_URL`. Telegram requires a public HTTPS webhook URL, so local webhook testing needs a tunnel. Render deployment is the simplest way to test the production webhook.
 
-## Project files
+## Security
 
-- `src/index.ts` — webhook, commands, D1 queries, and scheduled reminders.
-- `migrations/0001_initial.sql` — D1 schema.
-- `wrangler.toml` — Worker, D1, and cron configuration.
-- `.dev.vars.example` — local secret names.
+Never commit `BOT_TOKEN`, `WEBHOOK_SECRET`, `DATABASE_URL`, `.env`, or any database password. Telegram only calls the secret webhook path, and all SQL queries use PostgreSQL parameters.

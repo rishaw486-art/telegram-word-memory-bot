@@ -1,0 +1,47 @@
+services:
+  - type: web
+    name: telegram-word-memory-bot
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: DATABASE_URL
+        fromDatabase:
+          name: telegram-memory-db
+          property: connectionString
+      - key: BOT_TOKEN
+        sync: false
+      - key: WEBHOOK_SECRET
+        generateValue: true
+
+  - type: cron
+    name: telegram-word-memory-reminders
+    runtime: node
+    plan: starter
+    schedule: "*/5 * * * *"
+    buildCommand: npm ci && npm run build
+    startCommand: npm run cron
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: DATABASE_URL
+        fromDatabase:
+          name: telegram-memory-db
+          property: connectionString
+      - key: BOT_TOKEN
+        sync: false
+      - key: WEBHOOK_SECRET
+        fromService:
+          type: web
+          name: telegram-word-memory-bot
+          envVarKey: WEBHOOK_SECRET
+
+databases:
+  - name: telegram-memory-db
+    databaseName: telegram_memory
+    user: telegram_memory
+    plan: free
