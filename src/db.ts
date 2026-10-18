@@ -18,10 +18,16 @@ export async function initDatabase(): Promise<void> {
         chat_id TEXT PRIMARY KEY,
         chat_title TEXT,
         enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        word_cursor BIGINT NOT NULL DEFAULT 0,
+        sentence_cursor BIGINT NOT NULL DEFAULT 0,
+        image_cursor BIGINT NOT NULL DEFAULT 0,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
+    await client.query("ALTER TABLE chats ADD COLUMN IF NOT EXISTS word_cursor BIGINT NOT NULL DEFAULT 0");
+    await client.query("ALTER TABLE chats ADD COLUMN IF NOT EXISTS sentence_cursor BIGINT NOT NULL DEFAULT 0");
+    await client.query("ALTER TABLE chats ADD COLUMN IF NOT EXISTS image_cursor BIGINT NOT NULL DEFAULT 0");
     await client.query(`
       CREATE TABLE IF NOT EXISTS memories (
         id BIGSERIAL PRIMARY KEY,

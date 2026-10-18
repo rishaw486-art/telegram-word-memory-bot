@@ -1,6 +1,6 @@
 # Telegram Word & Sentence Memory Bot
 
-A Telegram bot that stores words and sentences, lets you remove them, and sends one random word plus one random sentence every five minutes.
+A Telegram bot that stores words, sentences, and images, lets you remove them, and sends the next item from each category every five minutes.
 
 This version is built for **Render**:
 
@@ -24,6 +24,8 @@ This version is built for **Render**:
 - `/removesentence exact text` — remove a sentence by exact text
 - `/stop` — pause reminders without deleting data
 - `/remindme` — send a reminder immediately
+
+Reminders are sequential, not random. Words, sentences, and images each have their own saved cursor. The bot sends items in ascending ID order, then wraps back to the first item after reaching the end. The cursors are stored in PostgreSQL, so a Render restart does not reset the sequence.
 
 ## Deploy with Render Blueprint
 

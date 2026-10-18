@@ -89,14 +89,7 @@ export async function sendReminders(db: Pool, botToken: string): Promise<void> {
 }
 
 async function sendReminderNow(db: Pool, botToken: string, chatId: string, scheduled = false): Promise<void> {
-  const [wordResult, sentenceResult, imageResult] = await Promise.all([
-    db.query<Memory>("SELECT id, content FROM memories WHERE chat_id = $1 AND kind = 'word' ORDER BY RANDOM() LIMIT 1", [chatId]),
-    db.query<Memory>("SELECT id, content FROM memories WHERE chat_id = $1 AND kind = 'sentence' ORDER BY RANDOM() LIMIT 1", [chatId]),
-    db.query<Memory>("SELECT id, content, file_id FROM memories WHERE chat_id = $1 AND kind = 'image' ORDER BY RANDOM() LIMIT 1", [chatId]),
-  ]);
-  const word = wordResult.rows[0];
-  const sentence = sentenceResult.rows[0];
-  const image = imageResult.rows[0];
+  const { word, sentence, image } = await getNextMemories(db, chatId);
   if (!word && !sentence && !image) {
     if (!scheduled) await sendMessage(botToken, chatId, "Your reminder list is empty. Add a word, sentence, or image first.");
     return;
@@ -106,6 +99,51 @@ async function sendReminderNow(db: Pool, botToken: string, chatId: string, sched
   if (sentence) lines.push(`Sentence: ${sentence.content}`);
   if (lines.length > 2) await sendMessage(botToken, chatId, lines.join("\n"));
   if (image?.file_id) await sendPhoto(botToken, chatId, image.file_id, image.content || undefined);
+}
+
+async function getNextMemories(db: Pool, chatId: string): Promise<{ word?: Memory; sentence?: Memory; image?: Memory }> {
+  const client = await db.connect();
+  const result: { word?: Memory; sentence?: Memory; image?: Memory } = {};
+  const cursorColumns = { word: "word_cursor", sentence: "sentence_cursor", image: "image_cursor" } as const;
+  try {
+    await client.query("BEGIN");
+    // Serialize reminders for one chat so two overlapping cron/manual runs
+    // cannot send the same item and advance the cursor incorrectly.
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [chatId]);
+    const chat = await client.query<{ word_cursor: string; sentence_cursor: string; image_cursor: string }>(
+      "SELECT word_cursor, sentence_cursor, image_cursor FROM chats WHERE chat_id = $1 FOR UPDATE", [chatId],
+    );
+    if (!chat.rows[0]) {
+      await client.query("COMMIT");
+      return result;
+    }
+
+    for (const kind of ["word", "sentence", "image"] as const) {
+      const cursor = Number(chat.rows[0][cursorColumns[kind]]);
+      let next = await client.query<Memory>(
+        "SELECT id, content, file_id FROM memories WHERE chat_id = $1 AND kind = $2 AND id > $3 ORDER BY id ASC LIMIT 1",
+        [chatId, kind, cursor],
+      );
+      if (!next.rows[0]) {
+        next = await client.query<Memory>(
+          "SELECT id, content, file_id FROM memories WHERE chat_id = $1 AND kind = $2 ORDER BY id ASC LIMIT 1",
+          [chatId, kind],
+        );
+      }
+      const memory = next.rows[0];
+      if (memory) {
+        result[kind] = memory;
+        await client.query(`UPDATE chats SET ${cursorColumns[kind]} = $1, updated_at = NOW() WHERE chat_id = $2`, [memory.id, chatId]);
+      }
+    }
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function addMemory(db: Pool, botToken: string, chatId: string, kind: "word" | "sentence", content: string): Promise<void> {
@@ -188,6 +226,6 @@ function helpText(): string {
     "Send a photo with caption /addimage [optional caption]", "Or reply to a photo with /addimage [optional caption]", "",
     "Manage items:", "/list - show saved items and their IDs", "/removeword 3 - remove word ID 3",
     "/removesentence 7 - remove sentence ID 7", "/removeimage 9 - remove image ID 9", "You can remove words/sentences by exact text.", "",
-    "Reminders:", "/start - enable random word, sentence, and image reminders every 5 minutes", "/stop - pause reminders", "/remindme - send a reminder now",
+    "Reminders:", "/start - enable sequential word, sentence, and image reminders every 5 minutes", "/stop - pause reminders", "/remindme - send the next reminder now",
   ].join("\n");
 }
