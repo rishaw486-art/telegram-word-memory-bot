@@ -43,32 +43,39 @@ The web service listens on Render's `PORT` environment variable. It exposes:
 
 ```text
 GET /health
-POST /telegram/<WEBHOOK_SECRET>
+POST /telegram/webhook
 ```
 
 The database schema is initialized automatically when the web service or cron job starts. The SQL reference is in `migrations/001_initial.sql`.
 
 Images are stored using Telegram's `file_id`, not as downloaded files. This keeps the database small and lets Telegram deliver the original saved image when a reminder is sent. The image caption is optional and is shown when the image is sent.
 
-## Set the Telegram webhook
+## Telegram webhook
 
-After the web service deploys, copy its public URL from Render. It normally looks like:
+On startup, the web service automatically registers its webhook using Render's `RENDER_EXTERNAL_URL` value. It normally looks like:
 
 ```text
 https://telegram-word-memory-bot.onrender.com
 ```
 
-Get the generated `WEBHOOK_SECRET` from the web service's Render environment variables. Then register the complete webhook URL:
+The final webhook endpoint is:
+
+```bash
+https://telegram-word-memory-bot.onrender.com/telegram/webhook
+```
+
+The service sends Telegram a secret header token automatically. This avoids putting the secret in the URL and works even when Render generates a secret containing characters that are not valid in a URL path.
+
+If you use a custom domain, set `WEBHOOK_BASE_URL` on the web service to that base URL and redeploy. Otherwise, Render's automatic URL is used.
+
+If you need to register it manually, use:
 
 ```bash
 curl -sS -X POST \
   "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
-  --data-urlencode \
-  "url=https://telegram-word-memory-bot.onrender.com/telegram/<WEBHOOK_SECRET>" \
-  -d 'allowed_updates=["message"]'
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://telegram-word-memory-bot.onrender.com/telegram/webhook","secret_token":"<WEBHOOK_SECRET>","allowed_updates":["message"]}'
 ```
-
-A successful result contains `"ok":true`.
 
 Check the webhook:
 
@@ -113,6 +120,16 @@ Then create a Render **Cron Job** from the same repository:
 - **Environment:** the same `BOT_TOKEN` and `DATABASE_URL`
 
 The cron job is what sends reminders every five minutes. Do not rely on `setInterval` in the web service because a Render service can restart or sleep.
+
+## Troubleshooting no response
+
+Open the Render web service URL followed by `/health`. It must return JSON with `"ok": true`. Then inspect the webhook status:
+
+```bash
+curl "https://api.telegram.org/bot<BOT_TOKEN>/getWebhookInfo"
+```
+
+The `url` should end with `/telegram/webhook`, and `last_error_message` should be absent. After pushing a new commit, wait for the Render deploy to become live; the service registers the webhook again during startup.
 
 ## Local development
 

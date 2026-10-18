@@ -34,11 +34,6 @@ services:
           property: connectionString
       - key: BOT_TOKEN
         sync: false
-      - key: WEBHOOK_SECRET
-        fromService:
-          type: web
-          name: telegram-word-memory-bot
-          envVarKey: WEBHOOK_SECRET
 
 databases:
   - name: telegram-memory-db
